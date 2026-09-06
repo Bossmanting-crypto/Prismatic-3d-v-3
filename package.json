@@ -1,0 +1,21 @@
+{
+  "name": "prism-3d-viewer",
+  "productName": "Prism 3D Viewer",
+  "version": "1.0.0",
+  "description": "Import, inspect, measure, annotate and convert 3D models.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "dev": "npm run vendor && tauri dev",
+    "build": "npm run vendor && tauri build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "three": "0.160.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

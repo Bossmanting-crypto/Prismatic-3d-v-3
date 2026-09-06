@@ -1,0 +1,127 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Prism 3D Viewer",
+  "version": "1.0.0",
+  "identifier": "com.prism.viewer",
+  "build": {
+    "frontendDist": "../",
+    "beforeBuildCommand": "npm run vendor",
+    "beforeDevCommand": "npm run vendor"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Prism 3D Viewer",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "theme": "Dark",
+        "backgroundColor": "#15171b",
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: model: http://model.localhost; connect-src 'self' data: blob: model: http://model.localhost; worker-src 'self' blob:",
+      "assetProtocol": {
+        "enable": false
+      }
+    },
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "copyright": "Copyright \u00a9 2026",
+    "category": "Graphics",
+    "shortDescription": "3D model viewer",
+    "longDescription": "Import, inspect, measure, annotate and convert 3D models.",
+    "fileAssociations": [
+      {
+        "ext": [
+          "glb"
+        ],
+        "name": "Binary glTF model",
+        "description": "Binary glTF model",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "gltf"
+        ],
+        "name": "glTF model",
+        "description": "glTF model",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "obj"
+        ],
+        "name": "Wavefront OBJ model",
+        "description": "Wavefront OBJ model",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "fbx"
+        ],
+        "name": "Autodesk FBX model",
+        "description": "Autodesk FBX model",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "stl"
+        ],
+        "name": "Stereolithography model",
+        "description": "Stereolithography model",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "ply"
+        ],
+        "name": "Polygon model",
+        "description": "Polygon model",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "3mf"
+        ],
+        "name": "3D Manufacturing model",
+        "description": "3D Manufacturing model",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "dae"
+        ],
+        "name": "Collada model",
+        "description": "Collada model",
+        "role": "Viewer"
+      }
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "shortcutName": "Prism 3D Viewer"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  }
+}

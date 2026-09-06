@@ -1,0 +1,31 @@
+[package]
+name = "prism"
+version = "1.0.0"
+description = "Import, inspect, measure and convert 3D models."
+authors = ["Your Name"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "prism_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+tokio = { version = "1", features = ["sync"] }
+
+[profile.release]
+opt-level = "s"     # the shell is glue; the GPU does the work
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
