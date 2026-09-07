@@ -4,9 +4,11 @@
 //! owns the things a web document cannot do: reading arbitrary paths,
 //! native dialogs and menus, and storing per-model annotations.
 //!
-//! Model files are *not* copied across the IPC boundary. They are handed
-//! to the webview as `model://` URLs and streamed straight off disk, so a
-//! 300 MB scene never exists twice in memory.
+//! Opening a model is deliberately plain: the shell reads the bytes and
+//! passes them over the IPC channel as raw binary, and the frontend wraps
+//! each one in a blob. No custom URI scheme, no cross-origin request, no
+//! CSP entry — none of which have anything to do with reading a file off
+//! a local disk, and all of which are ways for it to fail.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -26,6 +28,7 @@ const ASSET_EXT: &[&str] = &[
 
 const MAX_FILES: usize = 500;
 const MAX_ASSET_BYTES: u64 = 400 * 1024 * 1024;
+const MAX_TOTAL_BYTES: u64 = 1500 * 1024 * 1024;
 
 /// Tokens handed to the webview, resolved back to real paths when it fetches them.
 #[derive(Default)]
@@ -34,7 +37,8 @@ pub struct FileRegistry(Mutex<HashMap<String, PathBuf>>);
 #[derive(Serialize)]
 pub struct AssetRef {
     name: String,
-    url: String,
+    token: String,
+    size: u64,
 }
 
 #[derive(Serialize)]
@@ -122,7 +126,7 @@ fn push_recent(app: &AppHandle, path: &Path) {
 
 // ─────────────────────────── commands ───────────────────────────
 
-/// Register a model and everything beside it, returning `model://` URLs.
+/// Register a model and everything sitting beside it, returning handles.
 /// The webview resolves textures by file name, so a flat list is enough —
 /// no directory structure has to survive the trip.
 #[tauri::command]
@@ -152,18 +156,21 @@ fn read_model(
     let mut register = |map: &mut HashMap<String, PathBuf>,
                         files: &mut Vec<AssetRef>,
                         counter: &mut usize,
-                        p: &Path| {
+                        p: &Path,
+                        size: u64| {
         *counter += 1;
         let token = format!("f{counter}");
         map.insert(token.clone(), p.to_path_buf());
         files.push(AssetRef {
             name: base_name(p),
-            url: format!("model://localhost/{token}"),
+            token,
+            size,
         });
     };
 
-    register(&mut map, &mut files, &mut counter, &model_path);
+    register(&mut map, &mut files, &mut counter, &model_path, meta.len());
     seen.push(model_path.to_string_lossy().to_ascii_lowercase());
+    let mut total = meta.len();
 
     // the model's own folder, then one level of subfolders (textures/, maps/…)
     let mut dirs = vec![dir.clone()];
@@ -191,12 +198,16 @@ fn read_model(
             if seen.contains(&key) {
                 continue;
             }
-            match std::fs::metadata(&p) {
-                Ok(m) if m.len() <= MAX_ASSET_BYTES => {}
+            let size = match std::fs::metadata(&p) {
+                Ok(m) if m.len() <= MAX_ASSET_BYTES => m.len(),
                 _ => continue,
+            };
+            if total + size > MAX_TOTAL_BYTES {
+                continue;
             }
+            total += size;
             seen.push(key);
-            register(&mut map, &mut files, &mut counter, &p);
+            register(&mut map, &mut files, &mut counter, &p, size);
         }
     }
 
@@ -209,6 +220,32 @@ fn read_model(
         size: meta.len(),
         files,
     })
+}
+
+/// Hand one registered file to the frontend as raw bytes.
+///
+/// This is deliberately boring. An earlier version served files over a
+/// custom URI scheme, which meant the scheme differed per platform, the
+/// request was cross-origin, and CSP had to allow it — three ways for a
+/// local file read to fail for reasons that have nothing to do with the
+/// file. `Response` sends the bytes straight through the IPC channel
+/// without JSON-encoding them.
+#[tauri::command]
+fn read_asset(
+    registry: State<'_, FileRegistry>,
+    token: String,
+) -> Result<tauri::ipc::Response, String> {
+    let path = registry
+        .0
+        .lock()
+        .map_err(|_| "registry unavailable".to_string())?
+        .get(&token)
+        .cloned()
+        .ok_or_else(|| format!("unknown file handle {token}"))?;
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.to_string_lossy()))?;
+
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -544,7 +581,9 @@ fn first_model_arg(args: &[String]) -> Option<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // single-instance has to be registered first, and dialog must be
+        // registered at all: app.dialog() reads managed state and panics
+        // without it.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
@@ -554,36 +593,12 @@ pub fn run() {
                 let _ = app.emit("open-path", p);
             }
         }))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(FileRegistry::default())
-        // Files are streamed to the webview rather than copied through IPC.
-        .register_asynchronous_uri_scheme_protocol("model", |ctx, request, responder| {
-            let token = request.uri().path().trim_start_matches('/').to_string();
-            let path = ctx
-                .app_handle()
-                .state::<FileRegistry>()
-                .0
-                .lock()
-                .ok()
-                .and_then(|m| m.get(&token).cloned());
-
-            std::thread::spawn(move || {
-                let response = match path.and_then(|p| std::fs::read(p).ok()) {
-                    Some(bytes) => tauri::http::Response::builder()
-                        .header("Access-Control-Allow-Origin", "*")
-                        .header("Content-Type", "application/octet-stream")
-                        .header("Cache-Control", "no-store")
-                        .body(bytes),
-                    None => tauri::http::Response::builder()
-                        .status(404)
-                        .body(Vec::new()),
-                };
-                if let Ok(r) = response {
-                    responder.respond(r);
-                }
-            });
-        })
         .invoke_handler(tauri::generate_handler![
             read_model,
+            read_asset,
             pick_model,
             pick_folder,
             save_dialog,

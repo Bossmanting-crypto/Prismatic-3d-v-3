@@ -8,14 +8,16 @@
   "type": "module",
   "scripts": {
     "vendor": "node scripts/vendor.mjs",
-    "dev": "npm run vendor && tauri dev",
-    "build": "npm run vendor && tauri build",
-    "tauri": "tauri"
+    "dev": "npm run check && npm run vendor && tauri dev",
+    "build": "npm run check && npm run vendor && tauri build",
+    "tauri": "tauri",
+    "check": "node scripts/check-config.mjs"
   },
   "dependencies": {
     "three": "0.160.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.1.0"
+    "@tauri-apps/cli": "^2.1.0",
+    "ajv": "^8.20.0"
   }
 }

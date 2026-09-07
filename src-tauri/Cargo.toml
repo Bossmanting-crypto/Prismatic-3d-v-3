@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2" }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
@@ -27,5 +27,10 @@ tokio = { version = "1", features = ["sync"] }
 opt-level = "s"     # the shell is glue; the GPU does the work
 lto = true
 codegen-units = 1
-panic = "abort"
 strip = true
+
+# Makes this package its own workspace root, so cargo stops searching
+# parent directories. Without it, any stray Cargo.toml above src-tauri
+# is treated as a workspace manifest and the build fails before it
+# starts — which is exactly what a copy at the repo root does.
+[workspace]

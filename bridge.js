@@ -17,6 +17,13 @@
   const invoke = T.core.invoke;
   const listen = T.event.listen;
 
+  /* Blob URLs from the previous model, released when the next one loads. */
+  let liveBlobs = [];
+  function releaseBlobs() {
+    liveBlobs.forEach((u) => URL.revokeObjectURL(u));
+    liveBlobs = [];
+  }
+
   let openHandler = null;
   let commandHandler = null;
 
@@ -96,9 +103,42 @@
     openDialog: async () => open(await invoke('pick_model')),
     openFolder: async () => open(await invoke('pick_folder')),
 
-    /* Returns `model://` URLs, not bytes. The webview streams each file
-       off disk as the loader asks for it. */
-    readModel: (path) => invoke('read_model', { path }),
+    /* Read the model and its neighbours, and hand the loaders ordinary
+       blob URLs. Blobs are same-origin and always fetchable, which is the
+       whole point: nothing here can fail for protocol reasons. */
+    readModel: async (path, onProgress) => {
+      const bundle = await invoke('read_model', { path });
+      releaseBlobs();
+
+      const files = [];
+      for (let i = 0; i < bundle.files.length; i++) {
+        const f = bundle.files[i];
+        try {
+          const buf = await invoke('read_asset', { token: f.token });
+          const url = URL.createObjectURL(new Blob([buf]));
+          liveBlobs.push(url);
+          files.push({ name: f.name, url });
+        } catch (err) {
+          // A sibling that will not read should not sink the model itself.
+          if (i === 0) throw err;
+          console.warn('skipped', f.name, err);
+        }
+        if (onProgress) onProgress((i + 1) / bundle.files.length);
+      }
+      return { ...bundle, files };
+    },
+
+    /* Proves the file channel works without needing a real file: an
+       unknown handle must come back as a clean error, not a dead call. */
+    selfTest: async () => {
+      try {
+        await invoke('read_asset', { token: '__probe__' });
+        return { ok: true };
+      } catch (e) {
+        const msg = String(e);
+        return { ok: /unknown file handle/i.test(msg), error: msg };
+      }
+    },
 
     save,
     showItem: (path) => invoke('reveal', { path }),

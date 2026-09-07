@@ -27,9 +27,15 @@ What Tauri buys over an Electron build of the same thing:
 | Memory at idle | Higher, two Node runtimes | Lower, one Rust process |
 | Rendering | Chromium | The same Chromium |
 
-Model files are **streamed, not copied**. The shell registers a `model://` protocol and
-hands the webview URLs; the loaders read straight off disk. A 300 MB scene is never
-duplicated in memory, which the Electron version could not avoid.
+Opening a model is deliberately plain. The Rust side reads the bytes and passes them
+over the IPC channel as raw binary; the frontend wraps each file in a blob and hands the
+loaders ordinary same-origin URLs.
+
+An earlier version served files over a custom `model://` URI scheme. It was more
+efficient on paper — no copy — but it failed on Windows, because Tauri maps custom
+schemes to `http://model.localhost` there, which made every texture read a cross-origin
+request subject to CSP. Three ways for a local file read to break, none of them anything
+to do with the file. Reading bytes costs a copy and cannot fail for protocol reasons.
 
 ---
 
@@ -74,8 +80,9 @@ anyway**, or add a `certificateThumbprint` under `bundle.windows`.
 need Rust or Build Tools locally. It runs on every push to `main`, on pull requests, and
 on demand from the Actions tab.
 
-- A fast Linux job syntax-checks the renderer and proves the three.js import graph still
-  resolves, before spending Windows minutes.
+- A fast Linux job validates `tauri.conf.json` against the schema shipped with the CLI,
+  syntax-checks the renderer, and proves the three.js import graph still resolves — all
+  before spending Windows minutes.
 - The Windows job builds and attaches the installer as a downloadable artifact, kept for
   30 days.
 - Pushing a tag such as `v1.0.0` also publishes a GitHub Release with the installer
@@ -171,6 +178,25 @@ Two notes for anyone modifying it:
 
 **The renderer knows nothing about Tauri.** It talks to `window.prism`, which `bridge.js`
 implements. Swapping the shell again means rewriting one file.
+
+**`npm run check` validates the Tauri config** against the schema in
+`node_modules/@tauri-apps/cli/config.schema.json`, and runs automatically before `dev`
+and `build`. Tauri's own error prints the whole offending object and says it "is not
+valid under any of the given schemas"; this names the exact key. It exists because
+`shortcutName` — an electron-builder field — survived the port and failed the first CI
+run after several minutes of setup.
+
+**`npm run check` also verifies plugin registration.** Every `tauri-plugin-*` dependency
+the Rust code calls into must be registered on the Builder. Miss one and the app compiles
+and launches normally, then aborts the moment that plugin is touched. That is not
+hypothetical: the dialog plugin shipped unregistered and killed the app on the first
+"Open model" click.
+
+**`src-tauri/Cargo.toml` declares an empty `[workspace]`.** Cargo searches parent
+directories for a workspace root, so a stray `Cargo.toml` anywhere above `src-tauri`
+gets parsed as one and the build fails before compiling anything. The empty table stops
+the search. `npm run check` also flags a manifest at the project root, since that is
+never correct here.
 
 **Vendoring follows the import graph.** `scripts/vendor.mjs` walks the real ES module
 imports rather than a hand-kept list -- the first version used a list, dropped

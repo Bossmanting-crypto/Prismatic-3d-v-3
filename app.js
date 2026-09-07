@@ -1461,7 +1461,7 @@ async function openPath(p){
   status('Reading ' + short);
   progress(0.04);
   try{
-    const bundle = await native.readModel(p);
+    const bundle = await native.readModel(p, frac => progress(0.05 + frac * 0.55));
 
     // The shell hands back streamable URLs rather than bytes, so the
     // loaders read straight off disk and a large scene is never copied.
@@ -1474,7 +1474,13 @@ async function openPath(p){
   }catch(err){
     progress(1);
     status('Could not read ' + short);
-    toast('Could not read ' + short, err.message || 'The file may be locked, missing, or in a format Prism does not read.', 'err');
+    const msg = String(err && err.message || err);
+    const netFail = /failed to fetch|networkerror|load failed/i.test(msg);
+    toast('Could not read ' + short,
+      netFail
+        ? 'The app could not reach its own file channel, so nothing was read from disk. This is a shell problem, not a problem with the model.'
+        : (msg || 'The file may be locked, missing, or in a format Prism does not read.'),
+      'err');
   }
 }
 
@@ -1588,6 +1594,17 @@ if(native){
 
   refreshRecent();
   status('Ready — open a model, or drop one here');
+
+  // Confirm the file channel works before the user finds out the hard way.
+  if(native.selfTest){
+    native.selfTest().then(r => {
+      if(!r.ok){
+        console.error('file channel self-test failed:', r.error);
+        toast('File channel unavailable',
+              'Prism cannot read files through its shell. Reinstalling usually fixes this.', 'err');
+      }
+    });
+  }
 }
 
 /* ══════════════════════════════════════════════════════════
